@@ -283,8 +283,7 @@ User=deacons-publishers
 Group=deacons-publishers
 WorkingDirectory=/var/www/prep50-coverage
 EnvironmentFile=/var/www/prep50-coverage/.env
-ExecStart=/var/www/prep50-coverage/.venv/bin/uvicorn api.main:app \
-  --host 127.0.0.1 --port 8000 --proxy-headers
+ExecStart=/var/www/prep50-coverage/.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --proxy-headers
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
