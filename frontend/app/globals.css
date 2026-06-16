@@ -1,0 +1,231 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ────────────────────────────────────────────────────────────────────────────
+   THEME — Prep50 Coverage
+   Built on top of shadcn's neutral palette + our brand verdict + accent tokens.
+   --primary stays as shadcn's dark neutral so buttons look refined; the brand
+   blue lives as --brand and --accent-tint for hero, charts, and highlights.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+
+  /* shadcn foundation (kept) */
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* ── Brand additions (Prep50) ───────────────────────────────────────── */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-tint: var(--brand-tint);
+  --color-brand-deep: var(--brand-deep);
+
+  --color-verdict-repeat: var(--verdict-repeat);
+  --color-verdict-repeat-bg: var(--verdict-repeat-bg);
+  --color-verdict-repeat-fg: var(--verdict-repeat-fg);
+
+  --color-verdict-near-high: var(--verdict-near-high);
+  --color-verdict-near-high-bg: var(--verdict-near-high-bg);
+  --color-verdict-near-high-fg: var(--verdict-near-high-fg);
+
+  --color-verdict-near: var(--verdict-near);
+  --color-verdict-near-bg: var(--verdict-near-bg);
+  --color-verdict-near-fg: var(--verdict-near-fg);
+
+  --color-verdict-new: var(--verdict-new);
+  --color-verdict-new-bg: var(--verdict-new-bg);
+  --color-verdict-new-fg: var(--verdict-new-fg);
+
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+}
+
+:root {
+  --background: oklch(0.99 0 0);          /* near-white */
+  --foreground: oklch(0.13 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.13 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.13 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.45 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.91 0 0);
+  --input: oklch(0.92 0 0);
+  --ring: oklch(0.55 0.18 264);
+  --radius: 0.625rem;
+
+  /* Brand: deep blue → violet gradient (matches the polished Streamlit pass). */
+  --brand:            #2563eb;
+  --brand-foreground: #ffffff;
+  --brand-soft:       #dbeafe;
+  --brand-tint:       #eff4ff;
+  --brand-deep:       #1e3a8a;
+
+  --surface-1: #fbfbfd;
+  --surface-2: #f5f5f7;
+
+  /* Verdicts */
+  --verdict-repeat:     #e11d48;
+  --verdict-repeat-bg:  #ffe4e6;
+  --verdict-repeat-fg:  #9f1239;
+
+  --verdict-near-high:  #f59e0b;
+  --verdict-near-high-bg: #fef3c7;
+  --verdict-near-high-fg: #92400e;
+
+  --verdict-near:       #d97706;
+  --verdict-near-bg:    #fed7aa;
+  --verdict-near-fg:    #7c2d12;
+
+  --verdict-new:        #10b981;
+  --verdict-new-bg:     #d1fae5;
+  --verdict-new-fg:     #065f46;
+
+  /* Charts use brand + verdict tokens, not the shadcn neutral chart defaults. */
+  --chart-1: #2563eb;
+  --chart-2: #7c3aed;
+  --chart-3: #e11d48;
+  --chart-4: #f59e0b;
+  --chart-5: #10b981;
+
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.55 0.18 264);
+  --surface-1: oklch(0.18 0 0);
+  --surface-2: oklch(0.22 0 0);
+
+  /* ── Brand (dark) — brighter accent that pops against the dark card ── */
+  --brand:            #60a5fa;
+  --brand-foreground: #0a0a0f;
+  --brand-soft:       oklch(0.36 0.12 264);
+  --brand-tint:       oklch(0.24 0.08 264);
+  --brand-deep:       #93c5fd;
+
+  /* ── Verdicts (dark) — light text on a softly-tinted dark wash ────── */
+  --verdict-repeat:     #f43f5e;
+  --verdict-repeat-bg:  oklch(0.30 0.13 18);
+  --verdict-repeat-fg:  #fda4af;
+
+  --verdict-near-high:  #fbbf24;
+  --verdict-near-high-bg: oklch(0.30 0.11 70);
+  --verdict-near-high-fg: #fde68a;
+
+  --verdict-near:       #f59e0b;
+  --verdict-near-bg:    oklch(0.30 0.10 55);
+  --verdict-near-fg:    #fed7aa;
+
+  --verdict-new:        #34d399;
+  --verdict-new-bg:     oklch(0.28 0.10 160);
+  --verdict-new-fg:     #6ee7b7;
+
+  /* Charts keep their saturated brand-accent slices visible on dark bg. */
+  --chart-1: #60a5fa;
+  --chart-2: #a78bfa;
+  --chart-3: #f43f5e;
+  --chart-4: #fbbf24;
+  --chart-5: #34d399;
+
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01", "ss03";  /* clean Geist + tabular nums */
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/* Utility helpers used across the app. */
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}

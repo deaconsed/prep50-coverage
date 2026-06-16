@@ -1,0 +1,8 @@
+# FastAPI service deps. The pipeline logic lives in scripts/ and reuses the
+# parent project's installed packages (psycopg2, google-genai, etc.) — keep this
+# file focused on what the API layer itself needs.
+fastapi>=0.110
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+sse-starlette>=2.1
+python-dotenv>=1.0

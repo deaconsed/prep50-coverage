@@ -1,0 +1,79 @@
+# Prep50 — full stack (db + api + frontend).
+#
+# Bring up everything:    docker compose up -d
+# Just the database:      docker compose up -d db
+# Just the app:           docker compose up -d api frontend
+# Tail logs:              docker compose logs -f api frontend
+# Stop:                   docker compose down
+# Nuke db volume too:     docker compose down -v
+#
+# The api service mounts your local .env (DB + Google creds) and
+# vertex_key.json read-only — those NEVER get baked into the image.
+
+services:
+  # ── Local Postgres mirror (optional; .env may target prod instead) ───────
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: prep50_pg
+    restart: unless-stopped
+    ports:
+      - "15433:5432"   # 15433 avoids the Windows WinNAT 5433-5632 reserved range
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdev}
+      POSTGRES_DB: prep50
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - prep50_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d prep50"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── FastAPI service ─────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: prep50_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env             # DB_HOST/PORT/USER/PASSWORD/NAME, GOOGLE_CLOUD_PROJECT, …
+    environment:
+      # Override .env's DB_HOST so the api can reach the in-compose db service
+      # when present. If your .env points at prod, comment this out.
+      FRONTEND_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+    volumes:
+      - ./vertex_key.json:/app/vertex_key.json:ro
+      - ./ingestion_batches:/app/ingestion_batches   # persistent batch reports
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://localhost:8000/api/health\").read() else 1)'"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+      start_period: 8s
+
+  # ── Next.js frontend ────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # These bake into the client bundle. For local-only use the host
+        # port-mapping; for a real deploy, set to the public api hostname.
+        NEXT_PUBLIC_API_URL: "http://localhost:8000"
+        NEXT_PUBLIC_SHOW_TECHNICAL: "false"
+    container_name: prep50_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  prep50_pgdata:
+    name: prep50_pgdata

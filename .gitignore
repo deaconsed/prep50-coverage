@@ -1,0 +1,59 @@
+# ── Secrets — never commit ────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+vertex_key.json
+*.key
+*.pem
+service_account*.json
+
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Node / Next.js (the per-package .gitignore covers most, this is belt) ─
+node_modules/
+.next/
+out/
+.turbo/
+
+# ── Database dumps / large source data ───────────────────────────────────
+*.backup
+*.dump
+*.sql.gz
+
+# ── Runtime artifacts (Q&A data + embeddings — do not publish) ───────────
+ingestion_batches/
+test_data/
+
+# ── Source exam material (copyrighted) ───────────────────────────────────
+WAEC*.docx
+WAEC*.csv
+WAEC*.pdf
+
+# ── OS / editor ──────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# ── Logs ─────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Plan + memory artefacts that don't belong in the public repo ──────────
+plans/
+
+# ── Throwaway diagnostic scripts (underscore-prefixed convention) ────────
+scripts/_*.py

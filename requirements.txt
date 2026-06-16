@@ -1,0 +1,20 @@
+# Top-level Python deps for the full project (api + scripts).
+# Pinned loosely — the api/ Dockerfile uses this list to provision the
+# FastAPI image; locally, `pip install -r requirements.txt` reproduces the
+# environment your scripts already run against.
+
+# Web layer
+fastapi>=0.110
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+sse-starlette>=2.1
+python-dotenv>=1.0
+
+# Pipeline
+psycopg2-binary>=2.9
+google-cloud-aiplatform>=1.74
+google-genai>=2.7
+google-auth>=2.53
+google-auth-oauthlib>=1.2
+openai>=1.40
+tqdm>=4.66
