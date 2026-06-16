@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
 import "./globals.css";
 
 import { Providers } from "@/components/providers";
@@ -40,11 +41,20 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <Providers>
-          <SiteHeader />
-          <main className="flex-1 w-full">{children}</main>
-          <SiteFooter />
-          <InstantCheckDialog />
-          <QuestionDetailDialog />
+          {/*
+            useSearchParams() (inside useTechnicalMode) bubbles up through
+            multiple components — header, footer, every verdict pill, the
+            dialogs. Next.js 16's strict static prerender rejects the build
+            unless they're inside a Suspense boundary, so we wrap the whole
+            tree once at the root.
+          */}
+          <Suspense fallback={null}>
+            <SiteHeader />
+            <main className="flex-1 w-full">{children}</main>
+            <SiteFooter />
+            <InstantCheckDialog />
+            <QuestionDetailDialog />
+          </Suspense>
         </Providers>
       </body>
     </html>
