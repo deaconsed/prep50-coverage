@@ -1,518 +1,559 @@
-# Install Prep50 Coverage on Linux
+# Install Prep50 Coverage on Ubuntu (office LAN)
 
-Practical install guide for Ubuntu 22.04 / Debian 12 / similar. Two paths:
-**Docker (recommended)** or **native install**. Pick one.
+Native install (no Docker) on a single Ubuntu server, deployed to
+`/var/www/prep50-coverage`, served to every machine on the office LAN through
+**one Nginx port (80)**. The frontend and the API live behind the same Nginx,
+so other computers on the network just need the server's IP — no per-device
+configuration, no broken API calls from remote browsers.
 
-The Docker path needs ~10 minutes, no system-level Python or Node tweaks, and
-ships everything as containers. The native path is what you'd run in dev or
-on a host where Docker isn't available.
-
----
-
-## 1. Prerequisites
-
-You'll need:
-
-| What | Why |
-|---|---|
-| Linux box with at least 2 GB RAM and 5 GB disk | Runs the API, the Next.js frontend, and (optionally) a local Postgres |
-| A Postgres database with `pgvector` 0.8+ enabled | Stores the question_embeddings side table. Either local Docker, a self-hosted instance, or a managed service (DigitalOcean / Supabase / RDS). |
-| **Vertex AI** service account JSON | Used for the embedding model (`text-embedding-005`) |
-| **OpenAI API key** | Used for the AI rerank step (`gpt-4o-mini` by default) |
-| Domain or LAN IP | Where the app will be reachable from |
-
-Both API keys are required for full coverage checks. If you skip the OpenAI
-key the app still works — the rerank step degrades to cosine-only.
+Tested on Ubuntu 22.04 LTS and 24.04 LTS.
 
 ---
 
-## 2. Path A — Docker (recommended)
+## Why your current setup breaks on other computers
 
-### 2.1 Install Docker
+The bug you're hitting is real and has one specific cause. When you build the
+Next.js frontend, the API URL gets **baked into the JavaScript bundle**. If
+you build it with `NEXT_PUBLIC_API_URL=http://localhost:8000`, every browser
+that loads your site — including the one on the computer down the hall —
+will try to call `http://localhost:8000` from **its own machine**, not from
+the server. That's why those computers see the page but get no data.
 
-Ubuntu / Debian:
+There are two ways to fix it:
 
-```bash
-# Add the official Docker apt repo
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
-  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+1. **Bake the server's IP into the bundle** (`NEXT_PUBLIC_API_URL=http://192.168.1.10:8000`). Works, but breaks when the IP changes and forces you to open two firewall ports.
+2. **Use Nginx as a reverse proxy** so the frontend and the API share **one origin** (`http://192.168.1.10`). Then `NEXT_PUBLIC_API_URL` is just blank, every browser calls `/api/...` on the same server it loaded the page from, and there are no IP gotchas. This is the standard production approach.
 
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+This guide uses option 2.
 
-# Run docker without sudo
-sudo usermod -aG docker $USER
-newgrp docker
+---
+
+## 1. Architecture
+
+```
+Browser on any office computer
+        │
+        │ http://<server-LAN-IP>/
+        ▼
+┌────────────────────────────────────┐
+│  Office server (Ubuntu)            │
+│                                    │
+│  Nginx :80    ─┬─►  /          ─►  Next.js  (127.0.0.1:3000)
+│                └─►  /api/...   ─►  FastAPI  (127.0.0.1:8000)
+└────────────────────────────────────┘
+        │
+        ▼
+   Postgres (DigitalOcean managed, or local)
 ```
 
-RHEL / Fedora: `sudo dnf install -y docker docker-compose-plugin && sudo systemctl enable --now docker`.
+Three pieces, all on the same server:
 
-Smoke-test:
-
-```bash
-docker run --rm hello-world
-```
-
-### 2.2 Get the code
-
-```bash
-cd /opt   # or wherever you keep services
-git clone <repo-url> Prep50-vector
-cd Prep50-vector
-```
-
-### 2.3 Provide the secrets
-
-Drop two files into the project root:
-
-- `vertex_key.json` — your GCP service account JSON, with at minimum the
-  `roles/aiplatform.user` role on the embedding project.
-- `.env` — config + credentials. Template below.
-
-`.env` template:
-
-```dotenv
-# --- Database (point at a Postgres with pgvector 0.8+) ---
-DB_HOST=your-db-host
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=replace-me
-DB_NAME=prep50
-DB_SSLMODE=require   # 'require' for managed PG, 'prefer' for self-hosted
-
-# --- Vertex AI (embedding model) ---
-GOOGLE_CLOUD_PROJECT=your-gcp-project-id
-GOOGLE_CLOUD_LOCATION=us-central1
-GOOGLE_APPLICATION_CREDENTIALS=vertex_key.json
-
-# --- OpenAI (AI rerank step) ---
-OPENAI_API_KEY=sk-...
-
-# --- Optional AI rerank tuning ---
-# AI_RERANK_ENABLED=true       # set false to disable rerank entirely
-# AI_RERANK_MODEL=gpt-4o-mini  # or gpt-4o for higher quality
-# AI_RERANK_TOP_K=20           # how deep into ANN candidates to rerank
-```
-
-Permissions:
-
-```bash
-chmod 600 .env vertex_key.json
-```
-
-### 2.4 Build + run
-
-```bash
-# Build images and start API + frontend (+ optional local Postgres)
-docker compose up -d --build
-
-# Or just API + frontend if your Postgres is external
-docker compose up -d --build api frontend
-```
-
-That brings up:
-
-| Container | Port | What |
+| Service | Where | Bound to |
 |---|---|---|
-| `prep50_api` | `8000` | FastAPI + AI pipeline |
-| `prep50_frontend` | `3000` | Next.js 16 app |
-| `prep50_pg` (optional) | `15433` | Local Postgres with pgvector (only useful for dev) |
+| FastAPI | `/var/www/prep50-coverage` (runs from `.venv`) | `127.0.0.1:8000` — local only |
+| Next.js | `/var/www/prep50-coverage/frontend` (`npm run start`) | `127.0.0.1:3000` — local only |
+| Nginx | system-installed | `0.0.0.0:80` — the only public-facing port |
 
-Logs:
-
-```bash
-docker compose logs -f api frontend
-```
-
-Stop:
-
-```bash
-docker compose down            # keeps any local Postgres volume
-docker compose down -v         # nukes the local Postgres volume
-```
-
-### 2.5 Point the frontend bundle at your real public hostname
-
-Important: `NEXT_PUBLIC_API_URL` is baked into the frontend at build time. The
-default in `docker-compose.yml` is `http://localhost:8000` — that only works
-when accessing from the same host as the API. For LAN / public access:
-
-```yaml
-# docker-compose.yml
-frontend:
-  build:
-    args:
-      NEXT_PUBLIC_API_URL: "http://203.0.113.10:8000"   # your public host
-      NEXT_PUBLIC_SHOW_TECHNICAL: "false"
-```
-
-Then rebuild only the frontend:
-
-```bash
-docker compose up -d --build frontend
-```
-
-Also tell the API which origins to trust for CORS:
-
-```yaml
-# docker-compose.yml
-api:
-  environment:
-    FRONTEND_ORIGINS: "http://203.0.113.10:3000,https://yourdomain.com"
-```
-
-```bash
-docker compose up -d api
-```
-
-### 2.6 Open the firewall
-
-```bash
-# ufw
-sudo ufw allow 3000/tcp
-sudo ufw allow 8000/tcp
-
-# firewalld
-sudo firewall-cmd --permanent --add-port=3000/tcp
-sudo firewall-cmd --permanent --add-port=8000/tcp
-sudo firewall-cmd --reload
-```
-
-### 2.7 Verify
-
-```bash
-curl -s http://localhost:8000/api/health
-# → {"status":"ok"}
-
-curl -s http://localhost:8000/api/corpus/stats | python3 -m json.tool
-# → totals + by_subject map
-
-curl -sI http://localhost:3000/
-# → HTTP/1.1 200 OK
-```
-
-Open `http://<host>:3000` in a browser. You should see the hero, your corpus
-size, and the recent runs strip.
+You only open **one port** on the firewall (80). All LAN clients reach
+`http://<server-LAN-IP>/`.
 
 ---
 
-## 3. Path B — Native install (no Docker)
+## 2. Prerequisites you need before starting
 
-Best when you want to develop / hack on the code.
+| What | Where to get it |
+|---|---|
+| Ubuntu server with a static LAN IP | Ask your IT lead. Example used below: `192.168.1.10`. |
+| `sudo` access on the server | Either as root or a user in the sudo group. |
+| The server's IP fixed in your router | Otherwise the IP will drift and browsers will break. Get the IT team to reserve it by MAC. |
+| `vertex_key.json` (GCP service account) | Copy from the laptop where it currently lives. |
+| `OPENAI_API_KEY` | The key you already have. |
+| Postgres connection details | The DigitalOcean credentials from `.env`. |
 
-### 3.1 System packages
+Find the server's LAN IP once you're logged in:
 
-Ubuntu 22.04+:
+```bash
+hostname -I | awk '{print $1}'
+```
+
+Use that value everywhere this guide says `192.168.1.10`.
+
+---
+
+## 3. Install system packages
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y python3.12 python3.12-venv python3-pip \
-                        build-essential libpq-dev curl git
+sudo apt-get install -y \
+  python3.12 python3.12-venv python3-pip \
+  build-essential libpq-dev pkg-config \
+  git curl nginx ufw
 ```
 
-Node 22 (via NodeSource):
+Node 22 (from NodeSource, the official supported route):
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
 
-Verify:
+Sanity check:
 
 ```bash
-python3 --version   # >= 3.12
-node --version      # v22.x
+python3 --version       # 3.12.x
+node --version          # v22.x
 npm --version
+nginx -v
 ```
 
-### 3.2 Get the code
+---
+
+## 4. Create a service user and the deploy folder
+
+A dedicated user keeps the services out of `root`'s blast radius.
 
 ```bash
-cd /opt
-git clone <repo-url> Prep50-vector
-cd Prep50-vector
+sudo useradd --system --create-home --shell /bin/bash prep50
+
+sudo mkdir -p /var/www/prep50-coverage
+sudo chown prep50:prep50 /var/www/prep50-coverage
 ```
 
-### 3.3 Python dependencies
+Optional but useful — let yourself su into that user for ops:
 
 ```bash
+sudo usermod -aG prep50 $USER     # log out + back in for this to take effect
+```
+
+---
+
+## 5. Clone the code
+
+Switch to the service user before doing this, so all files end up with the
+right ownership:
+
+```bash
+sudo -iu prep50
+cd /var/www/prep50-coverage
+git clone https://github.com/deaconsed/prep50-coverage.git .
+```
+
+(The `.` at the end clones into the current directory rather than a subfolder.)
+
+---
+
+## 6. Configure secrets
+
+Still as the `prep50` user, in `/var/www/prep50-coverage`:
+
+```bash
+cp .env.example .env
+nano .env       # or vim — fill in real values
+```
+
+Fill in the real values:
+
+```dotenv
+# Database — your DigitalOcean managed Postgres
+DB_HOST=143.198.141.149
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=<the real password>
+DB_NAME=prep50
+DB_SSLMODE=require
+
+# Vertex AI — same project you've been using
+GOOGLE_CLOUD_PROJECT=rising-area-483510-j7
+GOOGLE_CLOUD_LOCATION=us-central1
+GOOGLE_APPLICATION_CREDENTIALS=/var/www/prep50-coverage/vertex_key.json
+
+# OpenAI — for the AI rerank step
+OPENAI_API_KEY=sk-...
+
+# Optional rerank tuning (defaults are fine)
+# AI_RERANK_ENABLED=true
+# AI_RERANK_MODEL=gpt-4o-mini
+# AI_RERANK_TOP_K=20
+
+# CORS — Nginx proxies same-origin so this can stay empty. Listed here for clarity.
+FRONTEND_ORIGINS=http://127.0.0.1,http://localhost
+```
+
+Drop `vertex_key.json` into the project root. From your laptop:
+
+```bash
+scp vertex_key.json prep50@192.168.1.10:/var/www/prep50-coverage/
+```
+
+Lock down permissions on both files:
+
+```bash
+chmod 600 .env vertex_key.json
+```
+
+---
+
+## 7. Frontend env — the critical bit
+
+Create `frontend/.env.local` (still as the `prep50` user):
+
+```bash
+cat > /var/www/prep50-coverage/frontend/.env.local <<'EOF'
+# Empty value → fetch calls become "/api/..." which Nginx proxies to FastAPI
+# on the same origin. THIS is what makes other computers work.
+NEXT_PUBLIC_API_URL=
+NEXT_PUBLIC_SHOW_TECHNICAL=false
+EOF
+```
+
+**Important**: the empty value isn't a typo. Leaving `NEXT_PUBLIC_API_URL=`
+empty makes the frontend issue requests relative to the host it was loaded
+from (same-origin). When a browser on another office computer opens
+`http://192.168.1.10/`, the frontend calls `http://192.168.1.10/api/...`
+which Nginx routes to FastAPI. Other computers don't need to know anything
+about port 8000 or `localhost`.
+
+---
+
+## 8. Python virtualenv + dependencies
+
+```bash
+cd /var/www/prep50-coverage
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
-```
-
-### 3.4 Frontend dependencies
-
-```bash
-cd frontend
-npm install
-cd ..
-```
-
-### 3.5 Configure secrets
-
-Same `.env` and `vertex_key.json` as in section 2.3, both placed at the
-project root. Then also add a `.env.local` under `frontend/`:
-
-```dotenv
-# frontend/.env.local
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_SHOW_TECHNICAL=false
-```
-
-Replace `localhost` with your public host when going beyond local dev.
-
-### 3.6 Run the services
-
-API (terminal 1):
-
-```bash
-source .venv/bin/activate
-uvicorn api.main:app --host 0.0.0.0 --port 8000
-```
-
-Frontend dev mode (terminal 2):
-
-```bash
-cd frontend
-npm run dev:lan     # binds 0.0.0.0:3000
-```
-
-Or production mode:
-
-```bash
-cd frontend
-npm run build
-npm run start:lan
+deactivate
 ```
 
 ---
 
-## 4. Database setup
-
-### 4.1 If you already have a Postgres with pgvector
-
-Just point `.env` at it, then apply the migration once:
+## 9. Frontend build
 
 ```bash
-psql "postgresql://USER:PASS@HOST:5432/DBNAME?sslmode=require" \
+cd /var/www/prep50-coverage/frontend
+npm ci
+npm run build
+```
+
+`npm run build` produces `.next/standalone` and `.next/static` — production
+artifacts that `npm run start` serves. Roughly 60 seconds end-to-end on a
+modest server.
+
+---
+
+## 10. Database — apply the migration once
+
+If you're pointing `.env` at the already-populated DigitalOcean Postgres,
+you've already done this. Skip ahead to step 11.
+
+If this is a fresh database, apply the migration:
+
+```bash
+cd /var/www/prep50-coverage
+PGPASSWORD=<password> psql -h <DB_HOST> -U postgres -d prep50 \
   -f migrations/prod_001_question_embeddings.sql
 ```
 
-### 4.2 If you're using the bundled docker-compose `db` service (dev only)
-
-`docker compose up -d db` brings up a fresh pgvector-enabled Postgres. To
-populate it from a prod dump:
-
-```bash
-# Inside the running db container
-docker exec -i prep50_pg psql -U postgres -d prep50 -c "CREATE EXTENSION IF NOT EXISTS vector;"
-
-# Restore your dump
-pg_restore -U postgres -h localhost -p 15433 -d prep50 --no-owner --role=postgres prep50_dump.backup
-
-# Apply the migration
-psql "postgresql://postgres:localdev@localhost:15433/prep50" \
-  -f migrations/prod_001_question_embeddings.sql
-```
-
-### 4.3 Populate the embeddings (one-time)
-
-This runs the embedding backfill against whatever Postgres `.env` points at.
-Expect ~20 minutes for ~30k questions and uses your Vertex quota.
+If the embeddings table is empty, run the one-time backfill (~20 minutes for
+~30k questions; uses Vertex quota):
 
 ```bash
 source .venv/bin/activate
 python scripts/enrich_questions.py
+deactivate
 ```
-
-The script is idempotent — it skips questions already embedded with the
-current `MODEL_NAME` / `MODEL_VERSION`.
 
 ---
 
-## 5. Production deployment notes
+## 11. systemd services
 
-### 5.1 Reverse proxy with Nginx + TLS
+Two service units. Both run as the `prep50` user and restart on failure.
 
-If exposing to the internet, terminate TLS at Nginx and proxy to the
-containers on `127.0.0.1`. Example:
-
-```nginx
-server {
-  listen 443 ssl http2;
-  server_name coverage.yourdomain.com;
-
-  ssl_certificate     /etc/letsencrypt/live/coverage.yourdomain.com/fullchain.pem;
-  ssl_certificate_key /etc/letsencrypt/live/coverage.yourdomain.com/privkey.pem;
-
-  # Frontend
-  location / {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $remote_addr;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-  }
-
-  # API — proxied under /api/* so the frontend can hit same-origin
-  location /api/ {
-    proxy_pass http://127.0.0.1:8000;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $remote_addr;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header Connection "";
-    proxy_buffering off;          # critical for SSE streaming
-    proxy_read_timeout 1h;        # batch processing can take minutes
-  }
-}
-```
-
-After this, set `NEXT_PUBLIC_API_URL=https://coverage.yourdomain.com` and
-rebuild the frontend.
-
-### 5.2 systemd (native install only)
-
-If you went native (no Docker), use systemd to keep services running.
-
-`/etc/systemd/system/prep50-api.service`:
+Save as `/etc/systemd/system/prep50-api.service`:
 
 ```ini
 [Unit]
-Description=Prep50 Coverage API
+Description=Prep50 Coverage API (FastAPI)
 After=network.target
 
 [Service]
 Type=simple
 User=prep50
-WorkingDirectory=/opt/Prep50-vector
-EnvironmentFile=/opt/Prep50-vector/.env
-ExecStart=/opt/Prep50-vector/.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000
+Group=prep50
+WorkingDirectory=/var/www/prep50-coverage
+EnvironmentFile=/var/www/prep50-coverage/.env
+ExecStart=/var/www/prep50-coverage/.venv/bin/uvicorn api.main:app \
+  --host 127.0.0.1 --port 8000 --proxy-headers
 Restart=on-failure
 RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-`/etc/systemd/system/prep50-frontend.service`:
+Save as `/etc/systemd/system/prep50-frontend.service`:
 
 ```ini
 [Unit]
-Description=Prep50 Coverage Frontend
+Description=Prep50 Coverage Frontend (Next.js)
 After=network.target prep50-api.service
 
 [Service]
 Type=simple
 User=prep50
-WorkingDirectory=/opt/Prep50-vector/frontend
-ExecStart=/usr/bin/npm run start:lan
-Restart=on-failure
-RestartSec=5
+Group=prep50
+WorkingDirectory=/var/www/prep50-coverage/frontend
 Environment=NODE_ENV=production
 Environment=PORT=3000
-Environment=HOSTNAME=0.0.0.0
+Environment=HOSTNAME=127.0.0.1
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Enable both:
+Enable + start both:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now prep50-api prep50-frontend
-sudo systemctl status prep50-api prep50-frontend
+sudo systemctl status prep50-api prep50-frontend --no-pager
 ```
 
-### 5.3 Log rotation
+You should see both `active (running)`. If either is `failed`, jump to
+section 14 (Troubleshooting).
 
-Both services log to stdout. With Docker you get `docker logs`; with systemd
-you get `journalctl`. To trim journal disk usage:
+---
+
+## 12. Nginx reverse proxy — the part that ties it together
+
+Save as `/etc/nginx/sites-available/prep50-coverage`:
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name _;            # match any hostname / IP
+
+    client_max_body_size 25M; # CSV uploads — generous
+
+    # FastAPI under /api/*
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+
+        # SSE streaming for /api/batches/{id}/events — critical
+        proxy_buffering off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+    }
+
+    # Everything else → Next.js
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+Enable the site, disable the default, reload:
 
 ```bash
-sudo journalctl --vacuum-time=14d
+sudo ln -sf /etc/nginx/sites-available/prep50-coverage \
+            /etc/nginx/sites-enabled/prep50-coverage
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t          # syntax check — must say "ok"
+sudo systemctl reload nginx
 ```
 
 ---
 
-## 6. Verifying everything works end-to-end
+## 13. Firewall
 
-After install:
+Open only port 80 to the LAN. Block everything else.
 
 ```bash
-# 1. API is up and can talk to the DB
-curl http://localhost:8000/api/corpus/stats
-
-# 2. Frontend renders
-curl -sI http://localhost:3000/
-
-# 3. End-to-end: open the UI, drop a CSV, run a coverage check
-#    (or use the converter to make one from a DOCX)
-python scripts/docx_to_csv.py --input "example.docx" --out example.csv
+sudo ufw allow OpenSSH                # don't lock yourself out
+sudo ufw allow 80/tcp                 # Nginx
+sudo ufw --force enable
+sudo ufw status verbose
 ```
 
-Open `http://<host>:3000` → drop the CSV → pick the subject → click **Run
-coverage check**. Within seconds you should see verdicts streaming in,
-followed by the **Corpus coverage** percentage banner once the run finishes.
+If your office has a separate VLAN policy, ask IT to allow port 80 from the
+office network to `192.168.1.10`.
+
+**Ports 3000 and 8000 stay closed** — they're only accessible to the local
+loopback (127.0.0.1) and shouldn't be reachable from outside the server.
+That's by design.
 
 ---
 
-## 7. Troubleshooting
+## 14. Verify
 
-| Symptom | Likely cause | Fix |
+On the server:
+
+```bash
+# Both services up
+sudo systemctl is-active prep50-api prep50-frontend nginx
+
+# API health (through Nginx)
+curl -s http://127.0.0.1/api/health
+# → {"status":"ok"}
+
+# Frontend (through Nginx)
+curl -sI http://127.0.0.1/
+# → HTTP/1.1 200 OK
+```
+
+From another office computer:
+
+```bash
+# Replace with your server IP
+curl http://192.168.1.10/api/corpus/stats
+```
+
+Then open a browser to `http://192.168.1.10/` from any office machine. You
+should see the hero, the recent runs strip, and be able to upload a CSV +
+watch verdicts stream.
+
+---
+
+## 15. Troubleshooting
+
+| Symptom | Cause | Fix |
 |---|---|---|
-| `connection refused` from API to DB | wrong `DB_HOST` / port closed / SSL not negotiated | Verify with `psql "postgresql://..."` from the same host. Try `DB_SSLMODE=require` on managed PG. |
-| `OPENAI_API_KEY not set — AI rerank disabled` | env var didn't make it into the API process | With Docker, restart `api` after editing `.env`. With native, ensure the systemd unit has `EnvironmentFile=`. |
-| Frontend shows blank corpus stats | API URL baked into the bundle is wrong | Rebuild the frontend with the right `NEXT_PUBLIC_API_URL` (see 2.5). |
-| `psycopg2.InterfaceError: connection already closed` mid-batch | DB closed an idle connection | Already handled — the API auto-reconnects. If it persists, your DB has an unusually short idle timeout; restart the API. |
-| `Blocked cross-origin request to Next.js dev resource` | LAN host not in `allowedDevOrigins` | Add your host pattern to `frontend/next.config.ts` and restart. |
-| Browser console: `WebSocket connection ... failed` | Same as above — only happens in dev mode | Same fix. Production (`npm run start:lan`) doesn't use HMR so this can't happen there. |
-| 502 / connection reset on SSE batch streaming | Nginx buffering or short read timeout | Set `proxy_buffering off;` and `proxy_read_timeout 1h;` on the `/api/` location (see 5.1). |
-| `Could not decode CSV with utf-8 / cp1252 / latin-1` | CSV is a truly exotic encoding | Resave the CSV from Excel as **CSV UTF-8 (Comma delimited)** and re-upload. |
-| AI rerank step takes too long | gpt-4o-mini at default `AI_RERANK_TOP_K=20` is the bottleneck | Lower to 10, or set `AI_RERANK_ENABLED=false` to disable rerank entirely. |
+| Other computers see the page but API never responds | Frontend was built with a hardcoded `NEXT_PUBLIC_API_URL` instead of being left blank | Set `NEXT_PUBLIC_API_URL=` (empty) in `frontend/.env.local`, then `npm run build` and `sudo systemctl restart prep50-frontend` |
+| `502 Bad Gateway` on `/` | `prep50-frontend.service` isn't running | `sudo journalctl -u prep50-frontend -n 50` to read the error |
+| `502 Bad Gateway` only on `/api/...` | `prep50-api.service` isn't running, or it can't reach the database | `sudo journalctl -u prep50-api -n 50` |
+| SSE (live results) hangs and then dumps everything at once | Nginx `proxy_buffering` defaulted to on | Make sure your config has `proxy_buffering off;` under `location /api/` |
+| `WebSocket /_next/webpack-hmr ... failed` errors in browser | You're running `npm run dev` instead of `npm run start` — HMR is a dev-only feature | Use the production build via systemd as documented |
+| Connection refused to DB after a few minutes of idle | DigitalOcean managed Postgres closes idle connections | Already handled — the API auto-reconnects |
+| AI rerank quietly disabled | `OPENAI_API_KEY` didn't make it into the systemd service env | Confirm with `sudo systemctl show prep50-api -p Environment` and that `EnvironmentFile=` points at the right `.env` |
+| `Permission denied` on a file path | `prep50` user can't read it | `sudo chown -R prep50:prep50 /var/www/prep50-coverage` |
+| Browser caches the old broken bundle | Old build still served | Hard reload with `Ctrl+Shift+R` after a deploy |
+
+Logs you'll want:
+
+```bash
+sudo journalctl -u prep50-api -f          # follow API logs
+sudo journalctl -u prep50-frontend -f     # follow frontend logs
+sudo tail -f /var/log/nginx/access.log /var/log/nginx/error.log
+```
 
 ---
 
-## 8. Updating
+## 16. Updating after a code change
+
+From any developer machine, push to GitHub. Then on the server:
 
 ```bash
-cd /opt/Prep50-vector
+sudo -iu prep50
+cd /var/www/prep50-coverage
 git pull
 
-# Docker
-docker compose up -d --build
-
-# Native
+# If Python deps changed
 source .venv/bin/activate
 pip install -r requirements.txt
-cd frontend && npm install && npm run build && cd ..
+deactivate
+
+# If frontend changed
+cd frontend
+npm ci                    # only if package.json changed; otherwise skip
+npm run build
+cd ..
+
+exit                      # back to your sudo user
+
 sudo systemctl restart prep50-api prep50-frontend
 ```
 
+The whole loop is about 2 minutes for code-only changes.
+
 ---
 
-## 9. What goes where (cheat sheet)
+## 17. Backups (worth doing once)
+
+The `ingestion_batches/` folder holds every coverage report you've ever run.
+Back it up to S3 or another disk weekly:
+
+```bash
+# Append to crontab via `sudo crontab -e`
+0 2 * * * tar czf /backups/prep50-batches-$(date +\%F).tar.gz /var/www/prep50-coverage/ingestion_batches
+```
+
+The database itself should also be backed up — DigitalOcean managed Postgres
+does this for you. If you've moved to a self-hosted DB, use `pg_dump` on a
+schedule.
+
+---
+
+## 18. Adding HTTPS later (optional)
+
+For an office-only deployment, HTTP is usually fine. If you want HTTPS later
+(e.g., serving the tool externally), `certbot` handles it in five minutes:
+
+```bash
+sudo apt-get install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d coverage.yourdomain.com
+```
+
+Certbot will edit the Nginx config in place, force-redirect HTTP → HTTPS,
+and renew automatically.
+
+---
+
+## 19. Cheat sheet
 
 ```
-/opt/Prep50-vector/
-├── .env                       # database + Vertex + OpenAI credentials (chmod 600)
-├── vertex_key.json            # GCP service account JSON (chmod 600)
-├── docker-compose.yml         # the compose file you actually edit for prod
+/var/www/prep50-coverage/
+├── .env                       # secrets (chmod 600, owned by prep50)
+├── vertex_key.json            # GCP service account (chmod 600)
+├── .venv/                     # Python virtualenv
 ├── api/                       # FastAPI service
 ├── frontend/                  # Next.js app
-│   └── .env.local             # NEXT_PUBLIC_API_URL etc. (native install only)
-├── scripts/                   # one-off CLI tools (enrich, convert DOCX, etc.)
-├── migrations/                # apply once at install time
-└── ingestion_batches/         # JSON reports — mount as a volume if you want them to survive container restarts
+│   ├── .env.local             # NEXT_PUBLIC_API_URL= (EMPTY!) for same-origin
+│   ├── .next/                 # build output (from `npm run build`)
+│   └── ...
+├── scripts/                   # CLI tools (enrich, docx_to_csv, etc.)
+└── ingestion_batches/         # historical reports (back this up)
+
+/etc/systemd/system/
+├── prep50-api.service
+└── prep50-frontend.service
+
+/etc/nginx/sites-available/prep50-coverage
+/etc/nginx/sites-enabled/prep50-coverage → ../sites-available/...
 ```
+
+Daily commands:
+
+```bash
+# Status of everything
+sudo systemctl status prep50-api prep50-frontend nginx --no-pager
+
+# Restart after a config change
+sudo systemctl restart prep50-api prep50-frontend
+
+# Tail logs
+sudo journalctl -u prep50-api -f
+```
+
+That's it. One server, one open port, one URL for everyone in the office.
