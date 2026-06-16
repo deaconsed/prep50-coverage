@@ -108,21 +108,21 @@ nginx -v
 
 ---
 
-## 4. Create a service user and the deploy folder
+## 4. Prepare the deploy folder
 
-A dedicated user keeps the services out of `root`'s blast radius.
+You're already running services as the existing user **`deacons-publishers`**.
+This guide assumes that user exists; you only need to create the directory
+and hand it to them.
 
 ```bash
-sudo useradd --system --create-home --shell /bin/bash prep50
-
 sudo mkdir -p /var/www/prep50-coverage
-sudo chown prep50:prep50 /var/www/prep50-coverage
+sudo chown deacons-publishers:deacons-publishers /var/www/prep50-coverage
 ```
 
-Optional but useful — let yourself su into that user for ops:
+Optional — let yourself `su` into that user without typing a password every time:
 
 ```bash
-sudo usermod -aG prep50 $USER     # log out + back in for this to take effect
+sudo usermod -aG deacons-publishers $USER   # log out + back in for it to take effect
 ```
 
 ---
@@ -133,7 +133,7 @@ Switch to the service user before doing this, so all files end up with the
 right ownership:
 
 ```bash
-sudo -iu prep50
+sudo -iu deacons-publishers
 cd /var/www/prep50-coverage
 git clone https://github.com/deaconsed/prep50-coverage.git .
 ```
@@ -144,7 +144,7 @@ git clone https://github.com/deaconsed/prep50-coverage.git .
 
 ## 6. Configure secrets
 
-Still as the `prep50` user, in `/var/www/prep50-coverage`:
+Still as the `deacons-publishers` user, in `/var/www/prep50-coverage`:
 
 ```bash
 cp .env.example .env
@@ -182,7 +182,7 @@ FRONTEND_ORIGINS=http://127.0.0.1,http://localhost
 Drop `vertex_key.json` into the project root. From your laptop:
 
 ```bash
-scp vertex_key.json prep50@192.168.1.10:/var/www/prep50-coverage/
+scp vertex_key.json deacons-publishers@192.168.1.10:/var/www/prep50-coverage/
 ```
 
 Lock down permissions on both files:
@@ -195,7 +195,7 @@ chmod 600 .env vertex_key.json
 
 ## 7. Frontend env — the critical bit
 
-Create `frontend/.env.local` (still as the `prep50` user):
+Create `frontend/.env.local` (still as the `deacons-publishers` user):
 
 ```bash
 cat > /var/www/prep50-coverage/frontend/.env.local <<'EOF'
@@ -268,7 +268,7 @@ deactivate
 
 ## 11. systemd services
 
-Two service units. Both run as the `prep50` user and restart on failure.
+Two service units. Both run as the `deacons-publishers` user and restart on failure.
 
 Save as `/etc/systemd/system/prep50-api.service`:
 
@@ -279,8 +279,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=prep50
-Group=prep50
+User=deacons-publishers
+Group=deacons-publishers
 WorkingDirectory=/var/www/prep50-coverage
 EnvironmentFile=/var/www/prep50-coverage/.env
 ExecStart=/var/www/prep50-coverage/.venv/bin/uvicorn api.main:app \
@@ -303,8 +303,8 @@ After=network.target prep50-api.service
 
 [Service]
 Type=simple
-User=prep50
-Group=prep50
+User=deacons-publishers
+Group=deacons-publishers
 WorkingDirectory=/var/www/prep50-coverage/frontend
 Environment=NODE_ENV=production
 Environment=PORT=3000
@@ -447,7 +447,7 @@ watch verdicts stream.
 | `WebSocket /_next/webpack-hmr ... failed` errors in browser | You're running `npm run dev` instead of `npm run start` — HMR is a dev-only feature | Use the production build via systemd as documented |
 | Connection refused to DB after a few minutes of idle | DigitalOcean managed Postgres closes idle connections | Already handled — the API auto-reconnects |
 | AI rerank quietly disabled | `OPENAI_API_KEY` didn't make it into the systemd service env | Confirm with `sudo systemctl show prep50-api -p Environment` and that `EnvironmentFile=` points at the right `.env` |
-| `Permission denied` on a file path | `prep50` user can't read it | `sudo chown -R prep50:prep50 /var/www/prep50-coverage` |
+| `Permission denied` on a file path | `deacons-publishers` user can't read it | `sudo chown -R deacons-publishers:deacons-publishers /var/www/prep50-coverage` |
 | Browser caches the old broken bundle | Old build still served | Hard reload with `Ctrl+Shift+R` after a deploy |
 
 Logs you'll want:
@@ -465,7 +465,7 @@ sudo tail -f /var/log/nginx/access.log /var/log/nginx/error.log
 From any developer machine, push to GitHub. Then on the server:
 
 ```bash
-sudo -iu prep50
+sudo -iu deacons-publishers
 cd /var/www/prep50-coverage
 git pull
 
@@ -524,7 +524,7 @@ and renew automatically.
 
 ```
 /var/www/prep50-coverage/
-├── .env                       # secrets (chmod 600, owned by prep50)
+├── .env                       # secrets (chmod 600, owned by deacons-publishers)
 ├── vertex_key.json            # GCP service account (chmod 600)
 ├── .venv/                     # Python virtualenv
 ├── api/                       # FastAPI service
