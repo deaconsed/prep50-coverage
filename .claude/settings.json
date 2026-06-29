@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(py -X utf8 -c ' *)",
+      "Bash(py -X utf8 ./scripts/docx_to_csv.py --input \"./Docs/PHYSICS OBJ 2026 \\(1\\).docx\" --out physics_obj_2026.csv)",
+      "Bash(py -X utf8 ./scripts/docx_to_csv.py --input \"./Docs/ACCOUNT OBJ 2026.docx\" --out \"C:/Users/HP/AppData/Local/Temp/claude/d--Prep50-vector/6db8b341-e8fd-47a5-a35c-5a10da9cf1cb/scratchpad/account.csv\")"
+    ]
+  }
+}
