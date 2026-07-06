@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Search, Layers, History, Sparkles } from "lucide-react";
+import { Search, Layers, History, Sparkles, BarChart3 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { useInstantCheck } from "@/lib/stores/instant-check";
 
 const NAV = [
   { href: "/", label: "Overview", icon: Sparkles },
+  { href: "/insights", label: "Insights", icon: BarChart3 },
   { href: "/check", label: "New check", icon: Layers },
   { href: "/batches", label: "History", icon: History },
 ];

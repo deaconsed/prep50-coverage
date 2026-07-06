@@ -22,6 +22,45 @@ export interface CorpusStats {
   embed_dims: number;
 }
 
+export interface InsightSubject {
+  id: number;
+  name: string;
+  tag: string;
+  total: number;
+  topic_count: number;
+  year_min: number | null;
+  year_max: number | null;
+}
+
+export interface TopicStat {
+  topic: string;
+  /** Total questions ever asked on this topic. */
+  n: number;
+  /** Distinct exam years (1990-2026) it appears in. */
+  years: number;
+  /** Reach in WAEC (tag W or JW). */
+  ssce: number;
+  /** Reach in UTME (tag J or JW). */
+  utme: number;
+}
+
+export interface InsightQuestion {
+  id: number;
+  question: string;
+  options: (string | null)[];
+  year: number | null;
+  /** 0 = WAEC, 1 = UTME, 2 = both. */
+  exam: number;
+  /** 1-4 = correct option, 0 = unknown. */
+  answer: number;
+}
+
+export interface InsightQuestions {
+  total: number;
+  years: number[];
+  items: InsightQuestion[];
+}
+
 export interface FingerprintMatch {
   question_id: number;
   question_year: number | null;

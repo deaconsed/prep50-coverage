@@ -13,9 +13,12 @@ import type {
   BatchReport,
   BatchSummaryRow,
   CorpusStats,
+  InsightQuestions,
+  InsightSubject,
   SingleCheckRequest,
   SingleCheckResponse,
   Subject,
+  TopicStat,
 } from "./types";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -89,6 +92,37 @@ export async function createBatch(
   return (await res.json()) as BatchCreated;
 }
 
+// ── Insights (topic coverage explorer) ──────────────────────────────────────
+
+export async function fetchInsightSubjects(): Promise<InsightSubject[]> {
+  return jsonFetch<InsightSubject[]>("/api/insights/subjects");
+}
+
+export async function fetchInsightTopics(subjectId: number): Promise<TopicStat[]> {
+  return jsonFetch<TopicStat[]>(`/api/insights/topics?subject_id=${subjectId}`);
+}
+
+export interface InsightQuestionQuery {
+  subjectId: number;
+  topic: string;
+  exam?: "all" | "waec" | "utme" | "both";
+  year?: number | null;
+  limit?: number;
+}
+
+export async function fetchInsightQuestions(
+  q: InsightQuestionQuery,
+): Promise<InsightQuestions> {
+  const p = new URLSearchParams({
+    subject_id: String(q.subjectId),
+    topic: q.topic,
+    exam: q.exam ?? "all",
+    limit: String(q.limit ?? 60),
+  });
+  if (q.year != null) p.set("year", String(q.year));
+  return jsonFetch<InsightQuestions>(`/api/insights/questions?${p.toString()}`);
+}
+
 // ── Query hooks ─────────────────────────────────────────────────────────────
 
 export function useSubjects() {
@@ -104,6 +138,33 @@ export function useCorpusStats() {
     queryKey: ["corpus", "stats"],
     queryFn: fetchCorpusStats,
     staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+export function useInsightSubjects() {
+  return useQuery({
+    queryKey: ["insights", "subjects"],
+    queryFn: fetchInsightSubjects,
+    staleTime: 60 * 60 * 1000, // 1 hour — archive shape is static
+  });
+}
+
+export function useInsightTopics(subjectId: number | null) {
+  return useQuery({
+    queryKey: ["insights", "topics", subjectId],
+    queryFn: () => fetchInsightTopics(subjectId!),
+    enabled: subjectId != null,
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
+export function useInsightQuestions(q: InsightQuestionQuery | null) {
+  return useQuery({
+    queryKey: ["insights", "questions", q],
+    queryFn: () => fetchInsightQuestions(q!),
+    enabled: q != null && !!q.topic,
+    staleTime: 10 * 60 * 1000,
+    placeholderData: (prev) => prev, // keep previous questions visible while filtering
   });
 }
 

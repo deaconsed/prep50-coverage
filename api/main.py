@@ -18,7 +18,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api import deps
-from api.routes import batches, check, corpus, health, subjects
+from api.routes import batches, check, corpus, health, insights, subjects
 
 
 @asynccontextmanager
@@ -47,5 +47,6 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api", tags=["meta"])
 app.include_router(subjects.router, prefix="/api", tags=["subjects"])
 app.include_router(corpus.router, prefix="/api", tags=["corpus"])
+app.include_router(insights.router, prefix="/api", tags=["insights"])
 app.include_router(batches.router, prefix="/api", tags=["batches"])
 app.include_router(check.router, prefix="/api", tags=["check"])

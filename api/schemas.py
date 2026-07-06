@@ -34,6 +34,42 @@ class CorpusStats(BaseModel):
     embed_dims: int
 
 
+class InsightSubject(BaseModel):
+    """A subject with topic-mapped archive questions (for the Insights page)."""
+    id: int
+    name: str
+    tag: str
+    total: int
+    topic_count: int
+    year_min: Optional[int] = None
+    year_max: Optional[int] = None
+
+
+class TopicStat(BaseModel):
+    """Per-topic coverage stats within a subject."""
+    topic: str
+    n: int          # total questions ever asked on this topic
+    years: int      # distinct exam years it appears in (1990-2026)
+    ssce: int       # reach in WAEC (tag W or JW)
+    utme: int       # reach in UTME (tag J or JW)
+
+
+class InsightQuestion(BaseModel):
+    """One archived past question, exam-tagged."""
+    id: int
+    question: str
+    options: list[Optional[str]] = Field(default_factory=list)
+    year: Optional[int] = None
+    exam: int = 2    # 0 = WAEC, 1 = UTME, 2 = both
+    answer: int = 0  # 1-4 = correct option, 0 = unknown
+
+
+class InsightQuestions(BaseModel):
+    total: int
+    years: list[int] = Field(default_factory=list)
+    items: list[InsightQuestion] = Field(default_factory=list)
+
+
 class FingerprintMatch(BaseModel):
     question_id: int
     question_year: Optional[int] = None
